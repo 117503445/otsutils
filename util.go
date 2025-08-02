@@ -250,123 +250,148 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 	return nil
 }
 
+// executeOTSOperation 是一个通用的 OTS 操作执行函数
+func executeOTSOperation(
+	ctx context.Context,
+	operation string,
+	obj any,
+	buildRequest func(*OtsUtilsParams, *zerolog.Logger, any, ...any) (any, error),
+	execute func(*tablestore.TableStoreClient, any) (any, error),
+	handleResponse func(*zerolog.Logger, any, any) error,
+	params ...any,
+) error {
+	logger := zerolog.Ctx(ctx).With().Str("operation", operation).CallerWithSkipFrameCount(4).Logger()
+	otsParams := otsUtilsParamsFromCtx(ctx)
+
+	{
+		e := logger.Debug().Interface("obj", obj)
+		if len(params) > 0 {
+			e = e.Interface("params", params[0])
+		}
+		e.Msg("Executing OTS operation")
+	}
+
+	// 构建请求
+	req, err := buildRequest(otsParams, &logger, obj, params...)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to build request")
+		return err
+	}
+
+	logger.Debug().Interface("request", req).Msg("Request built")
+
+	// 执行请求
+	resp, err := execute(otsParams.Client, req)
+	if err != nil {
+		logger.Error().Err(err).Msg("OTS operation failed")
+		return err
+	}
+
+	logger.Debug().Interface("response", resp).Msg("Response received")
+
+	// 处理响应
+	if handleResponse != nil {
+		if err := handleResponse(&logger, resp, obj); err != nil {
+			logger.Error().Err(err).Msg("Failed to handle response")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// toAnySlice 将特定类型的切片转换为 []any
+func toAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}
+
 type PutRowParams struct {
 	RowExistenceExpectation *tablestore.RowExistenceExpectation
 }
 
 func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
-	logger := zerolog.Ctx(ctx).With().CallerWithSkipFrameCount(3).Logger()
+	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
+		rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
+		if len(params) > 0 {
+			if p, ok := params[0].(PutRowParams); ok && p.RowExistenceExpectation != nil {
+				rowExistenceExpectation = *p.RowExistenceExpectation
+			}
+		}
 
-	rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
-	if len(params) > 0 && params[0].RowExistenceExpectation != nil {
-		rowExistenceExpectation = *params[0].RowExistenceExpectation
+		putRowChange := &tablestore.PutRowChange{
+			TableName:  otsParams.TableName,
+			PrimaryKey: &tablestore.PrimaryKey{},
+		}
+		putRowChange.SetCondition(rowExistenceExpectation)
+
+		pks, cols, err := parseObj(ctx, obj)
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range pks {
+			putRowChange.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		}
+		for k, v := range cols {
+			putRowChange.AddColumn(k, v)
+		}
+
+		return &tablestore.PutRowRequest{PutRowChange: putRowChange}, nil
 	}
 
-	logger.Debug().
-		Interface("obj", obj).
-		Interface("rowExistenceExpectation", rowExistenceExpectation).
-		Msg("PutRow")
-
-	otsUtilsParams := otsUtilsParamsFromCtx(ctx)
-
-	putRowRequest := new(tablestore.PutRowRequest)
-	putRowChange := new(tablestore.PutRowChange)
-	putRowChange.TableName = otsUtilsParams.TableName
-	putPk := new(tablestore.PrimaryKey)
-
-	putRowChange.PrimaryKey = putPk
-
-	putRowChange.SetCondition(rowExistenceExpectation)
-	putRowRequest.PutRowChange = putRowChange
-
-	pks, cols, err := parseObj(ctx, obj)
-	if err != nil {
-		logger.Error().Err(err).Msg("parseObj")
-		return err
-	}
-	for k, v := range pks {
-		putPk.AddPrimaryKeyColumn(k, v)
-	}
-	for k, v := range cols {
-		putRowChange.AddColumn(k, v)
+	execute := func(client *tablestore.TableStoreClient, req any) (any, error) {
+		return client.PutRow(req.(*tablestore.PutRowRequest))
 	}
 
-	logger.Debug().Interface("PutRowRequest", putRowRequest).Send()
-
-	resp, err := otsUtilsParams.Client.PutRow(putRowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("put row failed")
-		return err
-	}
-	logger.Debug().Interface("PutRowResponse", resp).Send()
-
-	return nil
+	// PutRow 不需要处理响应数据
+	return executeOTSOperation(ctx, "PutRow", obj, buildReq, execute, nil, toAnySlice(params)...)
 }
 
 type GetRowParams struct {
 }
 
 func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
-	logger := zerolog.Ctx(ctx).With().CallerWithSkipFrameCount(3).Logger()
+	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
+		criteria := &tablestore.SingleRowQueryCriteria{
+			TableName:  otsParams.TableName,
+			MaxVersion: 1,
+			PrimaryKey: &tablestore.PrimaryKey{},
+		}
 
-	otsUtilsParams := otsUtilsParamsFromCtx(ctx)
+		pks, _, err := parseObj(ctx, obj)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range pks {
+			criteria.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		}
 
-	logger.Debug().
-		Interface("obj", obj).
-		Msg("GetRow")
-
-	getRowRequest := new(tablestore.GetRowRequest)
-	criteria := new(tablestore.SingleRowQueryCriteria)
-	putPk := new(tablestore.PrimaryKey)
-
-	criteria.PrimaryKey = putPk
-	getRowRequest.SingleRowQueryCriteria = criteria
-	getRowRequest.SingleRowQueryCriteria.TableName = otsUtilsParams.TableName
-	getRowRequest.SingleRowQueryCriteria.MaxVersion = 1
-
-	pks, _, err := parseObj(ctx, obj)
-	if err != nil {
-		logger.Error().Err(err).Msg("parseObj")
-		return err
-	}
-	for k, v := range pks {
-		putPk.AddPrimaryKeyColumn(k, v)
+		return &tablestore.GetRowRequest{SingleRowQueryCriteria: criteria}, nil
 	}
 
-	logger.Debug().Interface("getRowRequest", getRowRequest).Send()
-	resp, err := otsUtilsParams.Client.GetRow(getRowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("GetRow error")
-		return err
+	execute := func(client *tablestore.TableStoreClient, req any) (any, error) {
+		return client.GetRow(req.(*tablestore.GetRowRequest))
 	}
-	logger.Debug().Interface("getRowResponse", resp).Send()
-	{
+
+	handleResp := func(logger *zerolog.Logger, resp any, obj any) error {
+		getResp := resp.(*tablestore.GetRowResponse)
+
 		pks := make(map[string]any)
-		for _, pk := range resp.PrimaryKey.PrimaryKeys {
-			// logger.Info().
-			// 	Str("pk", pk.ColumnName).
-			// 	Str("value", pk.Value.(string)).
-			// 	Msg("GetRow")
+		for _, pk := range getResp.PrimaryKey.PrimaryKeys {
 			pks[pk.ColumnName] = pk.Value
 		}
 
 		cols := make(map[string]any)
-		for _, col := range resp.Columns {
-			// logger.Info().
-			// 	Str("pk", col.ColumnName).
-			// 	Str("value", col.Value.(string)).
-			// 	Msg("GetRow")
+		for _, col := range getResp.Columns {
 			cols[col.ColumnName] = col.Value
 		}
 
-		err := parseResult(ctx, obj, pks, cols)
-		if err != nil {
-			logger.Error().
-				Err(err).
-				Msg("parseResult")
-			return err
-		}
+		return parseResult(ctx, obj, pks, cols)
 	}
 
-	return nil
+	return executeOTSOperation(ctx, "GetRow", obj, buildReq, execute, handleResp, toAnySlice(params)...)
 }
