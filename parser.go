@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string]any, err error) {
+func ParseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string]any, err error) {
 	logger := log.Ctx(ctx)
 	logger.Debug().Discard().Interface("obj", obj).Send()
 
@@ -93,7 +93,7 @@ func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 	return pks, cols, nil
 }
 
-func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[string]any) error {
+func ParseResult(ctx context.Context, obj any, pks map[string]any, cols map[string]any) error {
 	logger := log.Ctx(ctx)
 	logger.Debug().Discard().Interface("obj", obj).Interface("pks", pks).Interface("cols", cols).Send()
 

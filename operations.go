@@ -11,19 +11,19 @@ import (
 // PutRow inserts a row into the table.
 // The obj parameter should be a pointer to a struct with fields tagged with "json" and optionally "pk".
 // Fields tagged with "pk" are treated as primary key columns, others are treated as attribute columns.
-// 
+//
 // Example usage:
-// 
-//  type MyRow struct {
-//      PK1 *string `json:"pk1" pk:"1"`
-//      Col1 *string `json:"col1"`
-//  }
-//  
-//  row := MyRow{
-//      PK1: tea.String("pk1value"),
-//      Col1: tea.String("col1value"),
-//  }
-//  err := PutRow(ctx, &row)
+//
+//	type MyRow struct {
+//	    PK1 *string `json:"pk1" pk:"1"`
+//	    Col1 *string `json:"col1"`
+//	}
+//
+//	row := MyRow{
+//	    PK1: tea.String("pk1value"),
+//	    Col1: tea.String("col1value"),
+//	}
+//	err := PutRow(ctx, &row)
 func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
 		rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
@@ -39,7 +39,7 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 		}
 		putRowChange.SetCondition(rowExistenceExpectation)
 
-		pks, cols, err := parseObj(ctx, obj)
+		pks, cols, err := ParseObj(ctx, obj)
 		if err != nil {
 			return nil, err
 		}
@@ -66,26 +66,26 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 // The obj parameter should be a pointer to a struct with fields tagged with "json" and "pk".
 // Fields tagged with "pk" are treated as primary key columns and used to locate the row.
 // Other fields in the struct are treated as attribute columns to update or add.
-// 
+//
 // Example usage:
-// 
-//  type MyRow struct {
-//      PK1 *string `json:"pk1" pk:"1"`
-//      Col1 *string `json:"col1"`
-//      Col2 *int64 `json:"col2"`
-//  }
-//  
-//  row := MyRow{
-//      PK1: tea.String("pk1value"),
-//      Col1: tea.String("newcol1value"),
-//      Col2: tea.Int64(42),
-//  }
-//  
-//  expectExist := tablestore.RowExistenceExpectation_EXPECT_EXIST
-//  err := UpdateRow(ctx, &row, UpdateRowParams{
-//      RowExistenceExpectation: &expectExist,
-//      DeletedColumns: []string{"old_column"},
-//  })
+//
+//	type MyRow struct {
+//	    PK1 *string `json:"pk1" pk:"1"`
+//	    Col1 *string `json:"col1"`
+//	    Col2 *int64 `json:"col2"`
+//	}
+//
+//	row := MyRow{
+//	    PK1: tea.String("pk1value"),
+//	    Col1: tea.String("newcol1value"),
+//	    Col2: tea.Int64(42),
+//	}
+//
+//	expectExist := tablestore.RowExistenceExpectation_EXPECT_EXIST
+//	err := UpdateRow(ctx, &row, UpdateRowParams{
+//	    RowExistenceExpectation: &expectExist,
+//	    DeletedColumns: []string{"old_column"},
+//	})
 func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
 	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
 		rowExistenceExpectation := tablestore.RowExistenceExpectation_IGNORE
@@ -110,7 +110,7 @@ func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
 		}
 		updateRowChange.SetCondition(rowExistenceExpectation)
 
-		pks, cols, err := parseObj(ctx, obj)
+		pks, cols, err := ParseObj(ctx, obj)
 		if err != nil {
 			return nil, err
 		}
@@ -148,22 +148,22 @@ func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
 // GetRow retrieves a row from the table.
 // The obj parameter should be a pointer to a struct with fields tagged with "json" and "pk".
 // Fields tagged with "pk" are used to locate the row, and other fields are populated with the retrieved values.
-// 
+//
 // Example usage:
-// 
-//  type MyRow struct {
-//      PK1 *string `json:"pk1" pk:"1"`
-//      Col1 *string `json:"col1"`
-//      Col2 *int64 `json:"col2"`
-//  }
-//  
-//  row := MyRow{
-//      PK1: tea.String("pk1value"),
-//  }
-//  err := GetRow(ctx, &row)
-//  if err == nil {
-//      // row.Col1 and row.Col2 are now populated with values from the table
-//  }
+//
+//	type MyRow struct {
+//	    PK1 *string `json:"pk1" pk:"1"`
+//	    Col1 *string `json:"col1"`
+//	    Col2 *int64 `json:"col2"`
+//	}
+//
+//	row := MyRow{
+//	    PK1: tea.String("pk1value"),
+//	}
+//	err := GetRow(ctx, &row)
+//	if err == nil {
+//	    // row.Col1 and row.Col2 are now populated with values from the table
+//	}
 func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
 		criteria := &tablestore.SingleRowQueryCriteria{
@@ -172,7 +172,7 @@ func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 			PrimaryKey: &tablestore.PrimaryKey{},
 		}
 
-		pks, _, err := parseObj(ctx, obj)
+		pks, _, err := ParseObj(ctx, obj)
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +200,7 @@ func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 			cols[col.ColumnName] = col.Value
 		}
 
-		return parseResult(ctx, obj, pks, cols)
+		return ParseResult(ctx, obj, pks, cols)
 	}
 
 	return executeOTSOperation(ctx, "GetRow", obj, buildReq, execute, handleResp, toAnySlice(params)...)
