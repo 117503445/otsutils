@@ -1,3 +1,4 @@
+// Package otsutils provides utilities for working with Alibaba Cloud Tablestore (OTS).
 package otsutils
 
 import (
@@ -13,6 +14,8 @@ import (
 
 type otsUtilsParamsCtxKey struct{}
 
+// NewClient creates a new TableStore client with the provided credentials.
+// It will panic if any of the required parameters are empty.
 func NewClient(ctx context.Context, endPoint, instanceName, accessKeyId, accessKeySecret string) *tablestore.TableStoreClient {
 	logger := log.Ctx(ctx)
 
@@ -27,6 +30,8 @@ type OtsUtilsParams struct {
 	TableName string
 }
 
+// WithContext adds the OtsUtilsParams to the context.
+// It will panic if TableName or Client are not set.
 func (otsUtilsParams *OtsUtilsParams) WithContext(ctx context.Context) context.Context {
 	logger := log.Ctx(ctx)
 
@@ -40,6 +45,7 @@ func (otsUtilsParams *OtsUtilsParams) WithContext(ctx context.Context) context.C
 	return context.WithValue(ctx, otsUtilsParamsCtxKey{}, otsUtilsParams)
 }
 
+// OtsUtilsParamsFromCtx retrieves the OtsUtilsParams from the context.
 func OtsUtilsParamsFromCtx(ctx context.Context) *OtsUtilsParams {
 	otsUtilsParams := ctx.Value(otsUtilsParamsCtxKey{})
 	return otsUtilsParams.(*OtsUtilsParams)
@@ -70,28 +76,28 @@ func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 
 	t := reflect.TypeOf(obj)
 
-	// 如果是指针，解引用
+	// If it's a pointer, dereference it
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 		t = t.Elem()
 	}
 
-	// 确保是结构体
+	// Ensure it's a struct
 	if v.Kind() != reflect.Struct {
 		return nil, nil, fmt.Errorf("obj must be a struct or pointer to struct")
 	}
 
-	// 遍历所有字段
+	// Iterate through all fields
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
 
 		isValidPointerType := func(t reflect.Type) bool {
-			// 必须是指针
+			// Must be a pointer
 			if t.Kind() != reflect.Ptr {
 				return false
 			}
-			// 指向的类型必须是 string、int64 或 []byte
+			// The pointed-to type must be string, int64, or []byte
 			elem := t.Elem()
 			switch elem.Kind() {
 			case reflect.String:
@@ -99,19 +105,19 @@ func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 			case reflect.Int64:
 				return true
 			case reflect.Slice:
-				return elem.Elem().Kind() == reflect.Uint8 // []byte 是 []uint8
+				return elem.Elem().Kind() == reflect.Uint8 // []byte is []uint8
 			default:
 				return false
 			}
 		}
-		// 检查字段类型是否合法
+		// Check if field type is valid
 		if !isValidPointerType(field.Type()) {
 			return nil, nil, fmt.Errorf("field %s has invalid type: %s. Only *string, *int64, and *[]byte are allowed", fieldType.Name, field.Type())
 		}
 
-		// 如果是指针且为 nil，跳过
+		// If it's a pointer and is nil, skip
 		if field.IsNil() {
-			continue // 注意：这里 continue，不参与 PutRow
+			continue // Note: continue here, not participating in PutRow
 		}
 
 		jsonTag := fieldType.Tag.Get("json")
@@ -121,10 +127,10 @@ func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 
 		value := field.Elem().Interface()
 
-		// 判断是否为主键
+		// Check if it's a primary key
 		isPk := pkTag != ""
 
-		// 根据是否为主键，添加到对应的地方
+		// Add to corresponding place based on whether it's a primary key
 		// if isPk {
 		// 	putPk.AddPrimaryKeyColumn(jsonTag, value)
 		// } else {
@@ -154,12 +160,12 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 		return fmt.Errorf("parseResult: obj must be a pointer to struct, got %s", t.Name())
 	}
 
-	// 内部函数：类型不匹配错误
+	// Internal function: type mismatch error
 	typeMismatchError := func(fieldType, value any) error {
 		return fmt.Errorf("expected %v, but got %T", fieldType, value)
 	}
 
-	// 内部函数：赋值到指针字段
+	// Internal function: assign to pointer field
 	assignToPointerField := func(field reflect.Value, value any) error {
 		if field.Kind() != reflect.Ptr {
 			return fmt.Errorf("field is not a pointer, got %s", field.Kind())
@@ -206,7 +212,7 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 		return nil
 	}
 
-	// 构建 json tag 到字段的映射
+	// Build json tag to field mapping
 	fieldMap := make(map[string]reflect.Value)
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
@@ -221,7 +227,7 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 			continue
 		}
 
-		// 去除 ,omitempty 等修饰
+		// Remove modifiers like ,omitempty
 		if idx := strings.Index(jsonTag, ","); idx != -1 {
 			jsonTag = jsonTag[:idx]
 		}
@@ -229,7 +235,7 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 		fieldMap[jsonTag] = field
 	}
 
-	// 处理主键
+	// Process primary keys
 	for colName, value := range pks {
 		if field, ok := fieldMap[colName]; ok {
 			if err := assignToPointerField(field, value); err != nil {
@@ -238,7 +244,7 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 		}
 	}
 
-	// 处理普通列
+	// Process regular columns
 	for colName, value := range cols {
 		if field, ok := fieldMap[colName]; ok {
 			if err := assignToPointerField(field, value); err != nil {
@@ -250,7 +256,7 @@ func parseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 	return nil
 }
 
-// executeOTSOperation 是一个通用的 OTS 操作执行函数
+// executeOTSOperation is a generic OTS operation execution function
 func executeOTSOperation(
 	ctx context.Context,
 	operation string,
@@ -271,7 +277,7 @@ func executeOTSOperation(
 		e.Msg("Executing OTS operation")
 	}
 
-	// 构建请求
+	// Build request
 	req, err := buildRequest(otsParams, &logger, obj, params...)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to build request")
@@ -280,7 +286,7 @@ func executeOTSOperation(
 
 	logger.Debug().Interface("request", req).Msg("Request built")
 
-	// 执行请求
+	// Execute request
 	resp, err := execute(otsParams.Client, req)
 	if err != nil {
 		logger.Error().Err(err).Msg("OTS operation failed")
@@ -289,7 +295,7 @@ func executeOTSOperation(
 
 	logger.Debug().Interface("response", resp).Msg("Response received")
 
-	// 处理响应
+	// Handle response
 	if handleResponse != nil {
 		if err := handleResponse(&logger, resp, obj); err != nil {
 			logger.Error().Err(err).Msg("Failed to handle response")
@@ -300,7 +306,7 @@ func executeOTSOperation(
 	return nil
 }
 
-// toAnySlice 将特定类型的切片转换为 []any
+// toAnySlice converts a slice of a specific type to []any
 func toAnySlice[T any](slice []T) []any {
 	result := make([]any, len(slice))
 	for i, v := range slice {
@@ -309,10 +315,28 @@ func toAnySlice[T any](slice []T) []any {
 	return result
 }
 
+// PutRowParams contains parameters for the PutRow operation.
 type PutRowParams struct {
+	// RowExistenceExpectation specifies the row existence expectation for the operation.
 	RowExistenceExpectation *tablestore.RowExistenceExpectation
 }
 
+// PutRow inserts a row into the table.
+// The obj parameter should be a pointer to a struct with fields tagged with "json" and optionally "pk".
+// Fields tagged with "pk" are treated as primary key columns, others are treated as attribute columns.
+// 
+// Example usage:
+// 
+//  type MyRow struct {
+//      PK1 *string `json:"pk1" pk:"1"`
+//      Col1 *string `json:"col1"`
+//  }
+//  
+//  row := MyRow{
+//      PK1: tea.String("pk1value"),
+//      Col1: tea.String("col1value"),
+//  }
+//  err := PutRow(ctx, &row)
 func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
 		rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
@@ -347,13 +371,128 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 		return client.PutRow(req.(*tablestore.PutRowRequest))
 	}
 
-	// PutRow 不需要处理响应数据
+	// PutRow does not need to handle response data
 	return executeOTSOperation(ctx, "PutRow", obj, buildReq, execute, nil, toAnySlice(params)...)
 }
 
+// GetRowParams contains parameters for the GetRow operation.
 type GetRowParams struct {
 }
 
+// UpdateRowParams contains parameters for the UpdateRow operation.
+type UpdateRowParams struct {
+	// RowExistenceExpectation specifies the row existence expectation for the operation.
+	RowExistenceExpectation *tablestore.RowExistenceExpectation
+	
+	// DeletedColumns is a list of column names to delete.
+	DeletedColumns []string
+	
+	// UpdatedColumns is a map of column names to values to update or add.
+	UpdatedColumns map[string]any
+}
+
+// UpdateRow updates a row in the table.
+// The obj parameter should be a pointer to a struct with fields tagged with "json" and "pk".
+// Fields tagged with "pk" are treated as primary key columns and used to locate the row.
+// Other fields in the struct are treated as attribute columns to update or add.
+// 
+// Example usage:
+// 
+//  type MyRow struct {
+//      PK1 *string `json:"pk1" pk:"1"`
+//      Col1 *string `json:"col1"`
+//      Col2 *int64 `json:"col2"`
+//  }
+//  
+//  row := MyRow{
+//      PK1: tea.String("pk1value"),
+//      Col1: tea.String("newcol1value"),
+//      Col2: tea.Int64(42),
+//  }
+//  
+//  expectExist := tablestore.RowExistenceExpectation_EXPECT_EXIST
+//  err := UpdateRow(ctx, &row, UpdateRowParams{
+//      RowExistenceExpectation: &expectExist,
+//      DeletedColumns: []string{"old_column"},
+//  })
+func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
+	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
+		rowExistenceExpectation := tablestore.RowExistenceExpectation_IGNORE
+		var deletedColumns []string
+		var updatedColumns map[string]any
+
+		if len(params) > 0 {
+			if p, ok := params[0].(UpdateRowParams); ok {
+				if p.RowExistenceExpectation != nil {
+					rowExistenceExpectation = *p.RowExistenceExpectation
+				}
+				deletedColumns = p.DeletedColumns
+				updatedColumns = p.UpdatedColumns
+			}
+		}
+
+		logger.Debug().Interface("rowExistenceExpectation", rowExistenceExpectation).Send()
+
+		updateRowChange := &tablestore.UpdateRowChange{
+			TableName:  otsParams.TableName,
+			PrimaryKey: &tablestore.PrimaryKey{},
+		}
+		updateRowChange.SetCondition(rowExistenceExpectation)
+
+		pks, cols, err := parseObj(ctx, obj)
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range pks {
+			updateRowChange.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		}
+
+		// Process deleted columns
+		for _, colName := range deletedColumns {
+			updateRowChange.DeleteColumn(colName)
+		}
+
+		// Process updated/added columns
+		for colName, value := range updatedColumns {
+			updateRowChange.PutColumn(colName, value)
+		}
+
+		// Process columns extracted from obj (except primary key columns)
+		for k, v := range cols {
+			updateRowChange.PutColumn(k, v)
+		}
+
+		return &tablestore.UpdateRowRequest{UpdateRowChange: updateRowChange}, nil
+	}
+
+	execute := func(client *tablestore.TableStoreClient, req any) (any, error) {
+		return client.UpdateRow(req.(*tablestore.UpdateRowRequest))
+	}
+
+	// UpdateRow does not need special response handling
+	return executeOTSOperation(ctx, "UpdateRow", obj, buildReq, execute, nil, toAnySlice(params)...)
+}
+
+// GetRow retrieves a row from the table.
+// The obj parameter should be a pointer to a struct with fields tagged with "json" and "pk".
+// Fields tagged with "pk" are used to locate the row, and other fields are populated with the retrieved values.
+// 
+// Example usage:
+// 
+//  type MyRow struct {
+//      PK1 *string `json:"pk1" pk:"1"`
+//      Col1 *string `json:"col1"`
+//      Col2 *int64 `json:"col2"`
+//  }
+//  
+//  row := MyRow{
+//      PK1: tea.String("pk1value"),
+//  }
+//  err := GetRow(ctx, &row)
+//  if err == nil {
+//      // row.Col1 and row.Col2 are now populated with values from the table
+//  }
 func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 	buildReq := func(otsParams *OtsUtilsParams, logger *zerolog.Logger, obj any, params ...any) (any, error) {
 		criteria := &tablestore.SingleRowQueryCriteria{

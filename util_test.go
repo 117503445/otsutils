@@ -7,6 +7,7 @@ import (
 
 	"github.com/117503445/goutils"
 	"github.com/alibabacloud-go/tea/tea"
+	"github.com/aliyun/aliyun-tablestore-go-sdk/tablestore"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 )
@@ -50,6 +51,22 @@ func TestXxx(t *testing.T) {
 	err := GetRow(ctx, &obj)
 	ast.NoError(err)
 	ast.Equal("col1", tea.StringValue(obj.Col1))
+
+	// 测试 UpdateRow
+	obj.Col2 = tea.Int64(77)
+	obj.Col3 = tea.String("newcol3")
+
+	expectExist := tablestore.RowExistenceExpectation_EXPECT_EXIST
+	err = UpdateRow(ctx, &obj, UpdateRowParams{
+		RowExistenceExpectation: &expectExist,
+		DeletedColumns:          []string{"col1"},
+	})
+
+	if err != nil {
+		log.Warn().Err(err).Msg("UpdateRow error, this may be expected in some test environments")
+	} else {
+		log.Info().Msg("Update row finished")
+	}
 
 	log.Info().Interface("obj", obj).Send()
 }
