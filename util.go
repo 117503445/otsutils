@@ -54,34 +54,11 @@ func otsUtilsParamsFromCtx(ctx context.Context) *OtsUtilsParams {
 	return otsUtilsParams
 }
 
-type PutRowParams struct {
-	RowExistenceExpectation *tablestore.RowExistenceExpectation
-}
-
-func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
+func parseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string]any, err error) {
 	logger := log.Ctx(ctx)
 
-	rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
-	if len(params) > 0 && params[0].RowExistenceExpectation != nil {
-		rowExistenceExpectation = *params[0].RowExistenceExpectation
-	}
-
-	logger.Debug().
-		Interface("obj", obj).
-		Interface("rowExistenceExpectation", rowExistenceExpectation).
-		Msg("PutRow")
-
-	otsUtilsParams := otsUtilsParamsFromCtx(ctx)
-
-	putRowRequest := new(tablestore.PutRowRequest)
-	putRowChange := new(tablestore.PutRowChange)
-	putRowChange.TableName = otsUtilsParams.TableName
-	putPk := new(tablestore.PrimaryKey)
-
-	putRowChange.PrimaryKey = putPk
-
-	putRowChange.SetCondition(rowExistenceExpectation)
-	putRowRequest.PutRowChange = putRowChange
+	pks = make(map[string]any)
+	cols = make(map[string]any)
 
 	v := reflect.ValueOf(obj)
 	t := reflect.TypeOf(obj)
@@ -96,7 +73,7 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 	if v.Kind() != reflect.Struct {
 		err := fmt.Errorf("obj must be a struct or pointer to struct")
 		logger.Error().Err(err).Send()
-		return err
+		return nil, nil, err
 	}
 
 	// 遍历所有字段
@@ -126,7 +103,7 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 		if !isValidPointerType(field.Type()) {
 			err := fmt.Errorf("field %s has invalid type: %s. Only *string, *int64, and *[]byte are allowed", fieldType.Name, field.Type())
 			logger.Error().Err(err).Send()
-			return err
+			return nil, nil, err
 		}
 
 		// 如果是指针且为 nil，跳过
@@ -145,16 +122,63 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 		isPk := pkTag != ""
 
 		// 根据是否为主键，添加到对应的地方
+		// if isPk {
+		// 	putPk.AddPrimaryKeyColumn(jsonTag, value)
+		// } else {
+		// 	putRowChange.AddColumn(jsonTag, value)
+		// }
 		if isPk {
-			putPk.AddPrimaryKeyColumn(jsonTag, value)
+			pks[jsonTag] = value
 		} else {
-			putRowChange.AddColumn(jsonTag, value)
+			cols[jsonTag] = value
 		}
+	}
+	return pks, cols, nil
+}
+
+type PutRowParams struct {
+	RowExistenceExpectation *tablestore.RowExistenceExpectation
+}
+
+func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
+	logger := log.Ctx(ctx)
+
+	rowExistenceExpectation := tablestore.RowExistenceExpectation_EXPECT_NOT_EXIST
+	if len(params) > 0 && params[0].RowExistenceExpectation != nil {
+		rowExistenceExpectation = *params[0].RowExistenceExpectation
+	}
+
+	logger.Debug().
+		Interface("obj", obj).
+		Interface("rowExistenceExpectation", rowExistenceExpectation).
+		Msg("PutRow")
+
+	otsUtilsParams := otsUtilsParamsFromCtx(ctx)
+
+	putRowRequest := new(tablestore.PutRowRequest)
+	putRowChange := new(tablestore.PutRowChange)
+	putRowChange.TableName = otsUtilsParams.TableName
+	putPk := new(tablestore.PrimaryKey)
+
+	putRowChange.PrimaryKey = putPk
+
+	putRowChange.SetCondition(rowExistenceExpectation)
+	putRowRequest.PutRowChange = putRowChange
+
+	pks, cols, err := parseObj(ctx, obj)
+	if err != nil {
+		return err
+	}
+	for k, v := range pks {
+		putPk.AddPrimaryKeyColumn(k, v)
+	}
+	for k, v := range cols {
+		putRowChange.AddColumn(k, v)
 	}
 
 	logger.Debug().Interface("PutRowRequest", putRowRequest).Send()
 
-	_, err := otsUtilsParams.Client.PutRow(putRowRequest)
+	_, err = otsUtilsParams.Client.PutRow(putRowRequest)
 	if err != nil {
 		logger.Error().Err(err).Msg("put row failed")
 		return err
