@@ -8,6 +8,7 @@ import (
 	"github.com/117503445/goutils"
 	"github.com/alibabacloud-go/tea/tea"
 	"github.com/rs/zerolog/log"
+	"github.com/stretchr/testify/assert"
 )
 
 type Obj struct {
@@ -20,6 +21,8 @@ type Obj struct {
 }
 
 func TestXxx(t *testing.T) {
+	ast := assert.New(t)
+
 	goutils.InitZeroLog()
 
 	ctx := context.Background()
@@ -38,5 +41,15 @@ func TestXxx(t *testing.T) {
 		Pk2:  tea.Int64(1),
 		Col1: tea.String("col1"),
 	}
-	PutRow(ctx, obj)
+	PutRow(ctx, &obj)
+
+	obj = Obj{
+		Pk1: tea.String("pk1"),
+		Pk2: tea.Int64(1),
+	}
+	err := GetRow(ctx, &obj)
+	ast.NoError(err)
+	ast.Equal("col1", tea.StringValue(obj.Col1))
+
+	log.Info().Interface("obj", obj).Send()
 }
