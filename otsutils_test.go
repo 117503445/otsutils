@@ -14,8 +14,8 @@ import (
 
 type TestRow struct {
 	Pk1  *string `json:"pk1" pk:"1"`
-	Pk2  *int64  `json:"pk2" pk:"1"`
-	Pk3  *[]byte `json:"pk3" pk:"1"`
+	Pk2  *int64  `json:"pk2" pk:"2"`
+	Pk3  *[]byte `json:"pk3" pk:"3"`
 	Col1 *string `json:"col1"`
 	Col2 *int64  `json:"col2"`
 	Col3 *string `json:"col3"`

@@ -5,17 +5,18 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-func ParseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string]any, err error) {
+func ParseObj(ctx context.Context, obj any) (pks []KeyValue, cols []KeyValue, err error) {
 	logger := log.Ctx(ctx)
 	logger.Debug().Discard().Interface("obj", obj).Send()
 
-	pks = make(map[string]any)
-	cols = make(map[string]any)
+	pks = make([]KeyValue, 0)
+	cols = make([]KeyValue, 0)
 
 	v := reflect.ValueOf(obj)
 	if v.Kind() != reflect.Ptr {
@@ -34,6 +35,14 @@ func ParseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 	if v.Kind() != reflect.Struct {
 		return nil, nil, fmt.Errorf("obj must be a struct or pointer to struct")
 	}
+
+	// Collect primary key fields to sort them by pk tag value
+	type pkField struct {
+		jsonTag string
+		pkTag   string
+		value   any
+	}
+	var pkFields []pkField
 
 	// Iterate through all fields
 	for i := 0; i < v.NumField(); i++ {
@@ -85,15 +94,26 @@ func ParseObj(ctx context.Context, obj any) (pks map[string]any, cols map[string
 		// 	putRowChange.AddColumn(jsonTag, value)
 		// }
 		if isPk {
-			pks[jsonTag] = value
+			pkFields = append(pkFields, pkField{jsonTag: jsonTag, pkTag: pkTag, value: value})
 		} else {
-			cols[jsonTag] = value
+			cols = append(cols, KeyValue{Key: jsonTag, Value: value})
 		}
 	}
+
+	// Sort primary key fields by pk tag value in ascending order
+	sort.Slice(pkFields, func(i, j int) bool {
+		return pkFields[i].pkTag < pkFields[j].pkTag
+	})
+
+	// Add sorted primary key fields to the pks array
+	for _, pkField := range pkFields {
+		pks = append(pks, KeyValue{Key: pkField.jsonTag, Value: pkField.value})
+	}
+
 	return pks, cols, nil
 }
 
-func ParseResult(ctx context.Context, obj any, pks map[string]any, cols map[string]any) error {
+func ParseResult(ctx context.Context, obj any, pks []KeyValue, cols []KeyValue) error {
 	logger := log.Ctx(ctx)
 	logger.Debug().Discard().Interface("obj", obj).Interface("pks", pks).Interface("cols", cols).Send()
 
@@ -184,19 +204,19 @@ func ParseResult(ctx context.Context, obj any, pks map[string]any, cols map[stri
 	}
 
 	// Process primary keys
-	for colName, value := range pks {
-		if field, ok := fieldMap[colName]; ok {
-			if err := assignToPointerField(field, value); err != nil {
-				return fmt.Errorf("primary key %q: %w", colName, err)
+	for _, pk := range pks {
+		if field, ok := fieldMap[pk.Key]; ok {
+			if err := assignToPointerField(field, pk.Value); err != nil {
+				return fmt.Errorf("primary key %q: %w", pk.Key, err)
 			}
 		}
 	}
 
 	// Process regular columns
-	for colName, value := range cols {
-		if field, ok := fieldMap[colName]; ok {
-			if err := assignToPointerField(field, value); err != nil {
-				return fmt.Errorf("column %q: %w", colName, err)
+	for _, col := range cols {
+		if field, ok := fieldMap[col.Key]; ok {
+			if err := assignToPointerField(field, col.Value); err != nil {
+				return fmt.Errorf("column %q: %w", col.Key, err)
 			}
 		}
 	}

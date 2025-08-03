@@ -44,11 +44,11 @@ func PutRow(ctx context.Context, obj any, params ...PutRowParams) error {
 			return nil, err
 		}
 
-		for k, v := range pks {
-			putRowChange.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		for _, pk := range pks {
+			putRowChange.PrimaryKey.AddPrimaryKeyColumn(pk.Key, pk.Value)
 		}
-		for k, v := range cols {
-			putRowChange.AddColumn(k, v)
+		for _, col := range cols {
+			putRowChange.AddColumn(col.Key, col.Value)
 		}
 
 		return &tablestore.PutRowRequest{PutRowChange: putRowChange}, nil
@@ -115,8 +115,8 @@ func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
 			return nil, err
 		}
 
-		for k, v := range pks {
-			updateRowChange.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		for _, pk := range pks {
+			updateRowChange.PrimaryKey.AddPrimaryKeyColumn(pk.Key, pk.Value)
 		}
 
 		// Process deleted columns
@@ -130,8 +130,8 @@ func UpdateRow(ctx context.Context, obj any, params ...UpdateRowParams) error {
 		}
 
 		// Process columns extracted from obj (except primary key columns)
-		for k, v := range cols {
-			updateRowChange.PutColumn(k, v)
+		for _, col := range cols {
+			updateRowChange.PutColumn(col.Key, col.Value)
 		}
 
 		return &tablestore.UpdateRowRequest{UpdateRowChange: updateRowChange}, nil
@@ -176,8 +176,8 @@ func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 		if err != nil {
 			return nil, err
 		}
-		for k, v := range pks {
-			criteria.PrimaryKey.AddPrimaryKeyColumn(k, v)
+		for _, pk := range pks {
+			criteria.PrimaryKey.AddPrimaryKeyColumn(pk.Key, pk.Value)
 		}
 
 		return &tablestore.GetRowRequest{SingleRowQueryCriteria: criteria}, nil
@@ -190,14 +190,14 @@ func GetRow(ctx context.Context, obj any, params ...GetRowParams) error {
 	handleResp := func(logger *zerolog.Logger, resp any, obj any) error {
 		getResp := resp.(*tablestore.GetRowResponse)
 
-		pks := make(map[string]any)
+		pks := make([]KeyValue, 0)
 		for _, pk := range getResp.PrimaryKey.PrimaryKeys {
-			pks[pk.ColumnName] = pk.Value
+			pks = append(pks, KeyValue{Key: pk.ColumnName, Value: pk.Value})
 		}
 
-		cols := make(map[string]any)
+		cols := make([]KeyValue, 0)
 		for _, col := range getResp.Columns {
-			cols[col.ColumnName] = col.Value
+			cols = append(cols, KeyValue{Key: col.ColumnName, Value: col.Value})
 		}
 
 		return ParseResult(ctx, obj, pks, cols)

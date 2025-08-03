@@ -3,6 +3,12 @@ package otsutils
 
 import "github.com/aliyun/aliyun-tablestore-go-sdk/tablestore"
 
+// KeyValue represents a key-value pair.
+type KeyValue struct {
+	Key   string
+	Value any
+}
+
 // PutRowParams contains parameters for the PutRow operation.
 type PutRowParams struct {
 	// RowExistenceExpectation specifies the row existence expectation for the operation.
